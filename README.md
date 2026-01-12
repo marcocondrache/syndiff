@@ -22,4 +22,4 @@ It does not aim to replace Difftastic. It distills its core ideas into a reusabl
 
 ### ✦ Inspiration
 
-Inspired by **Difftastic**, created by Wilfred Hughes. All credit for the original algorithmic ideas belongs there. Any bugs introduced here are new and entirely our own.
+Inspired by **[Difftastic](https://github.com/Wilfred/difftastic)**, created by Wilfred Hughes. All credit for the original algorithmic ideas belongs there. Any bugs introduced here are new and entirely our own.
