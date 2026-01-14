@@ -7,6 +7,7 @@ use crate::{
     syntax_tree::{SyntaxHint, SyntaxNode, SyntaxTree},
 };
 
+mod syntax_delimiters;
 mod syntax_graph;
 mod syntax_tree;
 

@@ -1,9 +1,14 @@
 [package]
 name = "syndiff"
-description = "reserved"
-version = "0.1.0"
-license = "MIT"
+version = "0.1.1"
 edition = "2024"
+authors = ["Marco Mihai Condrache"]
+license = "MIT"
+description = "Standalone library that implements a structural diff algorithm inspired by Difftastic"
+keywords = ["diff", "tree-sitter", "syntax", "structural", "ast"]
+categories = ["algorithms", "text-processing", "development-tools"]
+readme = "README.md"
+documentation = "https://docs.rs/syndiff/"
 
 [dependencies]
 arrayvec = "0.7.6"
