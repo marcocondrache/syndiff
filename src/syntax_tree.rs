@@ -26,7 +26,7 @@ impl SyntaxId {
 /// - Punctuation is discouraged from matching over meaningful content
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SyntaxHint<'a> {
-    /// A string literal (not yet detected, reserved for future use).
+    /// A string literal
     String,
     /// A comment node. Stores the comment text for Levenshtein similarity
     /// computation when detecting replaced comments.
