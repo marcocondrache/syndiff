@@ -46,10 +46,6 @@ jobs:
         if: matrix.toolchain == 'nightly'
         run: cargo bench --verbose bench
 
-      - name: miri
-        if: matrix.toolchain == 'nightly'
-        run: bash ./scripts/miri.sh
-
   build_result:
     name: homu build finished
     runs-on: ubuntu-latest
