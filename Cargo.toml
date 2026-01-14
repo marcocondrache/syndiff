@@ -5,7 +5,9 @@ version = "0.1.0"
 license = "MIT"
 edition = "2024"
 
-[lib]
-path = "src/syndiff.rs"
-
 [dependencies]
+arrayvec = "0.7.6"
+tree-sitter = "0.26.3"
+strsim = "0.11.1"
+rustc-hash = "2.1.1"
+imara-diff = "0.2.0"
