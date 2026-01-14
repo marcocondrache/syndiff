@@ -1,7 +1,7 @@
 [package]
 name = "syndiff"
 version = "0.1.1"
-edition = "2024"
+edition = "2021"
 authors = ["Marco Mihai Condrache"]
 license = "MIT"
 description = "Standalone library that implements a structural diff algorithm inspired by Difftastic"
