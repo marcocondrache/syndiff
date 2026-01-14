@@ -6,11 +6,11 @@ It compares code as *syntax*, not just text - producing diffs that align with ho
 
 ### ✦ Key features
 
-* **Structural diffs** - Operates on parsed syntax trees instead of lines.
-* **Embeddable core** - Designed as a library, not a CLI application.
-* **Language-agnostic** - Parsers live at the edges; the algorithm stays generic.
-* **Deterministic output** - Predictable, explainable diffs suitable for tooling and UIs.
-* **Minimal surface area** - Focused api intended for reuse and experimentation.
+* **Structural diffing** - compares syntax trees, not text lines
+* **Embeddable by design** - a library core, no CLI or UI assumptions
+* **Language-agnostic** - parsing is external; the algorithm is generic
+* **Deterministic output** - stable, predictable diffs for tooling
+* **Minimal API** - small surface area, easy to integrate and experiment
 
 ### ✦ Philosophy
 
