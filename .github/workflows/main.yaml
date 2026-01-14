@@ -48,7 +48,7 @@ jobs:
 
       - name: miri
         if: matrix.toolchain == 'nightly'
-        run: bash ./scripts/run_miri.sh
+        run: bash ./scripts/miri.sh
 
   build_result:
     name: homu build finished
