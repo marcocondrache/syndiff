@@ -1,21 +1,189 @@
+//! A library for computing syntax-aware diffs using tree-sitter.
+//!
+//! This crate provides a structural diff algorithm inspired by
+//! [Difftastic](https://github.com/Wilfred/difftastic). Unlike line-based diffs,
+//! it understands code structure and produces more meaningful results when
+//! comparing source files.
+//!
+//! # Overview
+//!
+//! The primary types in this crate are:
+//!
+//! * [`diff_trees`]: Computes a diff between two syntax trees, returning byte
+//!   ranges of changed regions.
+//! * [`build_tree`]: Converts a tree-sitter parse tree into a [`SyntaxTree`].
+//! * [`SyntaxTree`]: A syntax tree optimized for diffing, stored in preorder
+//!   traversal.
+//! * [`SyntaxDiffOptions`]: Configuration for the diff algorithm.
+//!
+//! # Example: basic diffing
+//!
+//! This example shows how to diff two Rust code snippets:
+//!
+//! ```
+//! use syndiff::{build_tree, diff_trees};
+//!
+//! let old_source = "fn add(a: i32, b: i32) -> i32 { a + b }";
+//! let new_source = "fn add(x: i32, y: i32) -> i32 { x + y }";
+//!
+//! // Parse with tree-sitter
+//! let mut parser = tree_sitter::Parser::new();
+//! parser.set_language(&tree_sitter_rust::LANGUAGE.into()).unwrap();
+//!
+//! let old_ts_tree = parser.parse(old_source, None).unwrap();
+//! let new_ts_tree = parser.parse(new_source, None).unwrap();
+//!
+//! // Convert to syndiff trees
+//! let old_tree = build_tree(old_ts_tree.walk(), old_source);
+//! let new_tree = build_tree(new_ts_tree.walk(), new_source);
+//!
+//! // Compute the diff
+//! let (old_ranges, new_ranges) = diff_trees(
+//!     &old_tree,
+//!     &new_tree,
+//!     None,
+//!     None,
+//!     None,
+//! ).expect("diff succeeded");
+//!
+//! // The ranges indicate which bytes changed
+//! assert!(!old_ranges.is_empty());
+//! assert!(!new_ranges.is_empty());
+//!
+//! // Extract the changed text
+//! for range in &old_ranges {
+//!     println!("removed: {:?}", &old_source[range.clone()]);
+//! }
+//! for range in &new_ranges {
+//!     println!("added: {:?}", &new_source[range.clone()]);
+//! }
+//! ```
+//!
+//! # Example: limiting graph size
+//!
+//! For very different files, the diff graph can grow large. Use
+//! [`SyntaxDiffOptions`] to set a limit:
+//!
+//! ```
+//! use syndiff::{diff_trees, SyntaxDiffOptions};
+//! # use syndiff::build_tree;
+//! # let mut parser = tree_sitter::Parser::new();
+//! # parser.set_language(&tree_sitter_rust::LANGUAGE.into()).unwrap();
+//! # let old_tree = build_tree(parser.parse("fn a() {}", None).unwrap().walk(), "fn a() {}");
+//! # let new_tree = build_tree(parser.parse("fn b() {}", None).unwrap().walk(), "fn b() {}");
+//!
+//! let options = SyntaxDiffOptions {
+//!     graph_limit: 100_000, // Lower limit for faster failure
+//! };
+//!
+//! match diff_trees(&old_tree, &new_tree, None, None, Some(options)) {
+//!     Some((old_ranges, new_ranges)) => {
+//!         println!("diff computed successfully");
+//!     }
+//!     None => {
+//!         println!("diff exceeded graph limit, files too different");
+//!     }
+//! }
+//! ```
+//!
+//! # Example: partial diffs with range bounds
+//!
+//! When diffing a specific region within larger files, provide byte range
+//! bounds. The returned ranges will be clipped and made relative to the bounds:
+//!
+//! ```
+//! use syndiff::{build_tree, diff_trees};
+//! # let mut parser = tree_sitter::Parser::new();
+//! # parser.set_language(&tree_sitter_rust::LANGUAGE.into()).unwrap();
+//!
+//! let old_source = "fn foo() { 1 }\nfn bar() { 2 }";
+//! let new_source = "fn foo() { 1 }\nfn bar() { 3 }";
+//!
+//! let old_tree = build_tree(parser.parse(old_source, None).unwrap().walk(), old_source);
+//! # parser.reset();
+//! let new_tree = build_tree(parser.parse(new_source, None).unwrap().walk(), new_source);
+//!
+//! // Only diff the second function (bytes 15 onwards)
+//! let (old_ranges, new_ranges) = diff_trees(
+//!     &old_tree,
+//!     &new_tree,
+//!     Some(15..old_source.len()),
+//!     Some(15..new_source.len()),
+//!     None,
+//! ).unwrap();
+//!
+//! // Ranges are relative to the bounds (starting from 0)
+//! for range in &old_ranges {
+//!     let absolute_range = (range.start + 15)..(range.end + 15);
+//!     println!("changed in old: {:?}", &old_source[absolute_range]);
+//! }
+//! ```
+//!
+//! # How it works
+//!
+//! The algorithm is based on the approach described in the
+//! [Difftastic manual](https://difftastic.wilfred.me.uk/), modeling tree
+//! diffing as a shortest-path problem through an implicit graph.
+//!
+//! Each vertex represents a position in both syntax trees. Edges represent
+//! diff operations (unchanged, added, removed) with associated costs tuned
+//! to prefer matching identical subtrees. The algorithm finds the minimum-cost
+//! path using Dijkstra's algorithm.
+//!
+//! ## Structural hashing
+//!
+//! Each node stores a 64-bit hash of its structure: the grammar kind, content
+//! (for leaves), and children's hashes. This enables **O(1) subtree comparison** - if
+//! two nodes have the same hash, their entire subtrees are identical and can
+//! be skipped in one step.
+//!
+//! ## Complexity
+//!
+//! Let *n* and *m* be the number of nodes in the left and right trees.
+//!
+//! - **Time**: O(*n* × *m* × log(*n* × *m*)) worst case
+//! - **Space**: O(*n* × *m*)
+//!
+//! In practice, structural hashing makes similar trees much faster - closer to
+//! O(*n* + *m*) - since large unchanged subtrees are skipped entirely.
+//!
+//! The `graph_limit` parameter bounds memory usage by limiting vertices
+//! explored, returning `None` if exceeded.
+
 use std::ops::Range;
 
 use arrayvec::ArrayVec;
 
-use crate::{
-    syntax_graph::{SyntaxEdge, SyntaxRoute},
-    syntax_tree::{SyntaxHint, SyntaxNode, SyntaxTree},
-};
+use crate::syntax_graph::{SyntaxEdge, SyntaxRoute};
+use crate::syntax_tree::{SyntaxHint, SyntaxNode};
 
 mod syntax_delimiters;
 mod syntax_graph;
 mod syntax_tree;
 
-pub use syntax_tree::build_tree;
+pub use syntax_tree::{build_tree, SyntaxTree};
 
+/// Configuration for the diff algorithm.
+///
+/// # Example
+///
+/// ```
+/// use syndiff::SyntaxDiffOptions;
+///
+/// let options = SyntaxDiffOptions {
+///     graph_limit: 500_000,
+/// };
+/// ```
 #[derive(Debug, Clone, Copy)]
 pub struct SyntaxDiffOptions {
-    graph_limit: usize,
+    /// Maximum number of graph vertices to explore before giving up.
+    ///
+    /// The diff algorithm explores a graph where each vertex represents a
+    /// position in both syntax trees. For very different files, this graph
+    /// can grow exponentially. This limit prevents runaway memory usage.
+    ///
+    /// Default: `1_000_000`
+    pub graph_limit: usize,
 }
 
 impl Default for SyntaxDiffOptions {
@@ -26,12 +194,13 @@ impl Default for SyntaxDiffOptions {
     }
 }
 
-/// Compute a syntax-aware diff between two `SyntaxTree`s.
+/// Computes a syntax-aware diff between two syntax trees.
 ///
-/// When `lhs_range` and `rhs_range` are provided, the returned ranges are clipped to
-/// those bounds and made relative (starting from 0). This is useful when diffing syntax
-/// trees that may be larger than the region of interest (e.g., a function containing
-/// multiple diff hunks).
+/// Returns `Some((lhs_ranges, rhs_ranges))` with byte ranges of changed regions,
+/// or `None` if the diff graph exceeded the configured limit.
+///
+/// When `lhs_range` or `rhs_range` is provided, the returned ranges are clipped
+/// to those bounds and made relative (starting from 0).
 pub fn diff_trees(
     lhs_tree: &SyntaxTree,
     rhs_tree: &SyntaxTree,
