@@ -1,8 +1,8 @@
 //! A graph representation for computing tree diffs.
 
-use std::cmp::{Reverse, min};
-use std::collections::BinaryHeap;
+use std::cmp::{min, Reverse};
 use std::collections::hash_map::Entry;
+use std::collections::BinaryHeap;
 use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
 
@@ -227,26 +227,23 @@ pub fn compute_neighbours<'a>(v: &SyntaxVertex<'a>) -> ArrayVec<(SyntaxEdge, Syn
                     delimiters,
                 },
             ));
-        } else {
-            if let (
-                Some(SyntaxHint::Comment(lhs_comment)),
-                Some(SyntaxHint::Comment(rhs_comment)),
-            ) = (lhs_node.hint.as_ref(), rhs_node.hint.as_ref())
-            {
-                let levenshtein_pct = (strsim::normalized_levenshtein(lhs_comment, rhs_comment)
-                    * 100.0)
-                    .round() as u8;
-                let (lhs, rhs, delimiters) =
-                    pop_all_delimiters(v.lhs.next_sibling(), v.rhs.next_sibling(), v.delimiters);
-                neighbours.push((
-                    SyntaxEdge::Replaced { levenshtein_pct },
-                    SyntaxVertex {
-                        lhs,
-                        rhs,
-                        delimiters,
-                    },
-                ));
-            }
+        } else if let (
+            Some(SyntaxHint::Comment(lhs_comment)),
+            Some(SyntaxHint::Comment(rhs_comment)),
+        ) = (lhs_node.hint.as_ref(), rhs_node.hint.as_ref())
+        {
+            let levenshtein_pct =
+                (strsim::normalized_levenshtein(lhs_comment, rhs_comment) * 100.0).round() as u8;
+            let (lhs, rhs, delimiters) =
+                pop_all_delimiters(v.lhs.next_sibling(), v.rhs.next_sibling(), v.delimiters);
+            neighbours.push((
+                SyntaxEdge::Replaced { levenshtein_pct },
+                SyntaxVertex {
+                    lhs,
+                    rhs,
+                    delimiters,
+                },
+            ));
         }
 
         // Both are lists - check if delimiters match
