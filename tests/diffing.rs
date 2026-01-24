@@ -88,6 +88,9 @@ fn get_parser(lang: &str) -> fn(&str) -> SyntaxTree {
     match lang {
         "rust" => |source| parse_with_language(source, tree_sitter_rust::LANGUAGE.into()),
         "json" => |source| parse_with_language(source, tree_sitter_json::LANGUAGE.into()),
+        "javascript" => {
+            |source| parse_with_language(source, tree_sitter_javascript::LANGUAGE.into())
+        }
         _ => panic!("unsupported language: {lang}"),
     }
 }
