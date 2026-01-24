@@ -35,7 +35,7 @@ jobs:
         run: cargo build --verbose
 
       - name: Cargo test
-        run: cargo nextest run --verbose
+        run: cargo nextest run --no-fail-fast
 
       - name: Cargo doctest
         run: cargo test --doc --verbose
@@ -46,7 +46,7 @@ jobs:
 
       - name: Cargo test all features
         if: matrix.toolchain == 'nightly'
-        run: cargo nextest run --verbose --all-features
+        run: cargo nextest run --no-fail-fast --all-features
 
       - name: Cargo doctest all features
         if: matrix.toolchain == 'nightly'
