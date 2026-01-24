@@ -152,8 +152,6 @@
 
 use std::ops::Range;
 
-use arrayvec::ArrayVec;
-
 use crate::syntax_graph::{SyntaxEdge, SyntaxRoute};
 use crate::syntax_tree::{SyntaxHint, SyntaxNode};
 
@@ -279,26 +277,29 @@ fn collect_ranges(
     (lhs_ranges, rhs_ranges)
 }
 
-fn get_novel_ranges(node: &SyntaxNode, bounds: Option<&Range<usize>>) -> ArrayVec<Range<usize>, 2> {
-    let mut ranges = ArrayVec::new();
+fn get_novel_ranges(
+    node: &SyntaxNode,
+    bounds: Option<&Range<usize>>,
+) -> heapless::Vec<Range<usize>, 2, u8> {
+    let mut ranges = heapless::Vec::new();
 
     if node.is_atom() {
         if let Some(r) = adjust_range_to_bounds(node.byte_range.clone(), bounds) {
-            ranges.push(r);
+            let _ = ranges.push(r);
         }
     } else {
         if let Some(r) = node
             .open_delimiter_range()
             .and_then(|r| adjust_range_to_bounds(r, bounds))
         {
-            ranges.push(r);
+            let _ = ranges.push(r);
         }
 
         if let Some(r) = node
             .close_delimiter_range()
             .and_then(|r| adjust_range_to_bounds(r, bounds))
         {
-            ranges.push(r);
+            let _ = ranges.push(r);
         }
     }
 

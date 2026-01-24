@@ -6,7 +6,6 @@ use std::collections::BinaryHeap;
 use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
 
-use arrayvec::ArrayVec;
 use rustc_hash::FxHashMap;
 
 use crate::syntax_delimiters::SyntaxDelimiters;
@@ -87,6 +86,163 @@ impl<'a> SyntaxVertex<'a> {
 
     pub fn is_end(&self) -> bool {
         self.lhs.is_end() && self.rhs.is_end() && self.delimiters.is_empty()
+    }
+
+    pub fn neighbours(&self) -> heapless::Vec<(SyntaxEdge, SyntaxVertex<'a>), 8, u8> {
+        let mut neighbours = heapless::Vec::new();
+
+        if let (Some(lhs_node), Some(rhs_node)) = (self.lhs.node(), self.rhs.node()) {
+            // Both nodes have same structure - unchanged
+            if lhs_node.structural_hash == rhs_node.structural_hash {
+                let depth_difference =
+                    (self.lhs.depth() as i32 - self.rhs.depth() as i32).unsigned_abs();
+                let probably_punctuation = self
+                    .lhs
+                    .node()
+                    .is_some_and(|node| node.hint == Some(SyntaxHint::Punctuation));
+                let (lhs, rhs, delimiters) = pop_all_delimiters(
+                    self.lhs.next_sibling(),
+                    self.rhs.next_sibling(),
+                    self.delimiters,
+                );
+                let _ = neighbours.push((
+                    SyntaxEdge::Unchanged {
+                        depth_difference,
+                        probably_punctuation,
+                    },
+                    SyntaxVertex {
+                        lhs,
+                        rhs,
+                        delimiters,
+                    },
+                ));
+            } else if let (
+                Some(SyntaxHint::Comment(lhs_comment)),
+                Some(SyntaxHint::Comment(rhs_comment)),
+            ) = (lhs_node.hint.as_ref(), rhs_node.hint.as_ref())
+            {
+                let levenshtein_pct = (strsim::normalized_levenshtein(lhs_comment, rhs_comment)
+                    * 100.0)
+                    .round() as u8;
+                let (lhs, rhs, delimiters) = pop_all_delimiters(
+                    self.lhs.next_sibling(),
+                    self.rhs.next_sibling(),
+                    self.delimiters,
+                );
+                let _ = neighbours.push((
+                    SyntaxEdge::Replaced { levenshtein_pct },
+                    SyntaxVertex {
+                        lhs,
+                        rhs,
+                        delimiters,
+                    },
+                ));
+            }
+
+            // Both are lists - check if delimiters match
+            if lhs_node.is_list() && rhs_node.is_list() {
+                let delimiters_match = lhs_node.has_delimiters()
+                    && rhs_node.has_delimiters()
+                    && lhs_node.open_delimiter() == rhs_node.open_delimiter()
+                    && lhs_node.close_delimiter() == rhs_node.close_delimiter();
+
+                if delimiters_match {
+                    // Both are lists with matching delimiters - enter them together
+                    let depth_difference =
+                        (self.lhs.depth() as i32 - self.rhs.depth() as i32).unsigned_abs();
+                    let delimiters = self.delimiters.push_both();
+                    let (lhs, rhs, delimiters) = pop_all_delimiters(
+                        self.lhs.first_child(),
+                        self.rhs.first_child(),
+                        delimiters,
+                    );
+                    let _ = neighbours.push((
+                        SyntaxEdge::EnterUnchangedDelimiter { depth_difference },
+                        SyntaxVertex {
+                            lhs,
+                            rhs,
+                            delimiters,
+                        },
+                    ));
+                } else {
+                    // Both are lists with non-matching delimiters - enter both as novel
+                    let delimiters = self.delimiters.push_lhs().push_rhs();
+                    let (lhs, rhs, delimiters) = pop_all_delimiters(
+                        self.lhs.first_child(),
+                        self.rhs.first_child(),
+                        delimiters,
+                    );
+                    let _ = neighbours.push((
+                        SyntaxEdge::EnterNovelDelimiterBoth,
+                        SyntaxVertex {
+                            lhs,
+                            rhs,
+                            delimiters,
+                        },
+                    ));
+                }
+            }
+        }
+
+        // Novel LHS atom
+        if let Some(lhs_node) = self.lhs.node() {
+            if lhs_node.is_atom() {
+                let (lhs, rhs, delimiters) =
+                    pop_all_delimiters(self.lhs.next_sibling(), self.rhs, self.delimiters);
+                let _ = neighbours.push((
+                    SyntaxEdge::NovelAtomLHS,
+                    SyntaxVertex {
+                        lhs,
+                        rhs,
+                        delimiters,
+                    },
+                ));
+            } else {
+                // Enter novel LHS list
+                let delimiters = self.delimiters.push_lhs();
+                let (lhs, rhs, delimiters) =
+                    pop_all_delimiters(self.lhs.first_child(), self.rhs, delimiters);
+                let _ = neighbours.push((
+                    SyntaxEdge::EnterNovelDelimiterLHS,
+                    SyntaxVertex {
+                        lhs,
+                        rhs,
+                        delimiters,
+                    },
+                ));
+            }
+        }
+
+        // Novel RHS atom
+        if let Some(rhs_node) = self.rhs.node() {
+            if rhs_node.is_atom() {
+                let (lhs, rhs, delimiters) =
+                    pop_all_delimiters(self.lhs, self.rhs.next_sibling(), self.delimiters);
+                let _ = neighbours.push((
+                    SyntaxEdge::NovelAtomRHS,
+                    SyntaxVertex {
+                        lhs,
+                        rhs,
+                        delimiters,
+                    },
+                ));
+            } else {
+                // Enter novel RHS list
+                let delimiters = self.delimiters.push_rhs();
+                let (lhs, rhs, delimiters) =
+                    pop_all_delimiters(self.lhs, self.rhs.first_child(), delimiters);
+                let _ = neighbours.push((
+                    SyntaxEdge::EnterNovelDelimiterRHS,
+                    SyntaxVertex {
+                        lhs,
+                        rhs,
+                        delimiters,
+                    },
+                ));
+            }
+        }
+
+        neighbours
     }
 
     fn can_pop_either(&self) -> bool {
@@ -202,147 +358,6 @@ fn pop_all_delimiters<'a>(
     (lhs, rhs, delimiters)
 }
 
-/// Compute all possible neighbor vertices from the current vertex.
-pub fn compute_neighbours<'a>(v: &SyntaxVertex<'a>) -> ArrayVec<(SyntaxEdge, SyntaxVertex<'a>), 8> {
-    let mut neighbours = ArrayVec::new();
-
-    if let (Some(lhs_node), Some(rhs_node)) = (v.lhs.node(), v.rhs.node()) {
-        // Both nodes have same structure - unchanged
-        if lhs_node.structural_hash == rhs_node.structural_hash {
-            let depth_difference = (v.lhs.depth() as i32 - v.rhs.depth() as i32).unsigned_abs();
-            let probably_punctuation = v
-                .lhs
-                .node()
-                .is_some_and(|node| node.hint == Some(SyntaxHint::Punctuation));
-            let (lhs, rhs, delimiters) =
-                pop_all_delimiters(v.lhs.next_sibling(), v.rhs.next_sibling(), v.delimiters);
-            neighbours.push((
-                SyntaxEdge::Unchanged {
-                    depth_difference,
-                    probably_punctuation,
-                },
-                SyntaxVertex {
-                    lhs,
-                    rhs,
-                    delimiters,
-                },
-            ));
-        } else if let (
-            Some(SyntaxHint::Comment(lhs_comment)),
-            Some(SyntaxHint::Comment(rhs_comment)),
-        ) = (lhs_node.hint.as_ref(), rhs_node.hint.as_ref())
-        {
-            let levenshtein_pct =
-                (strsim::normalized_levenshtein(lhs_comment, rhs_comment) * 100.0).round() as u8;
-            let (lhs, rhs, delimiters) =
-                pop_all_delimiters(v.lhs.next_sibling(), v.rhs.next_sibling(), v.delimiters);
-            neighbours.push((
-                SyntaxEdge::Replaced { levenshtein_pct },
-                SyntaxVertex {
-                    lhs,
-                    rhs,
-                    delimiters,
-                },
-            ));
-        }
-
-        // Both are lists - check if delimiters match
-        if lhs_node.is_list() && rhs_node.is_list() {
-            let delimiters_match = lhs_node.has_delimiters()
-                && rhs_node.has_delimiters()
-                && lhs_node.open_delimiter() == rhs_node.open_delimiter()
-                && lhs_node.close_delimiter() == rhs_node.close_delimiter();
-
-            if delimiters_match {
-                // Both are lists with matching delimiters - enter them together
-                let depth_difference = (v.lhs.depth() as i32 - v.rhs.depth() as i32).unsigned_abs();
-                let delimiters = v.delimiters.push_both();
-                let (lhs, rhs, delimiters) =
-                    pop_all_delimiters(v.lhs.first_child(), v.rhs.first_child(), delimiters);
-                neighbours.push((
-                    SyntaxEdge::EnterUnchangedDelimiter { depth_difference },
-                    SyntaxVertex {
-                        lhs,
-                        rhs,
-                        delimiters,
-                    },
-                ));
-            } else {
-                // Both are lists with non-matching delimiters - enter both as novel
-                let delimiters = v.delimiters.push_lhs().push_rhs();
-                let (lhs, rhs, delimiters) =
-                    pop_all_delimiters(v.lhs.first_child(), v.rhs.first_child(), delimiters);
-                neighbours.push((
-                    SyntaxEdge::EnterNovelDelimiterBoth,
-                    SyntaxVertex {
-                        lhs,
-                        rhs,
-                        delimiters,
-                    },
-                ));
-            }
-        }
-    }
-
-    // Novel LHS atom
-    if let Some(lhs_node) = v.lhs.node() {
-        if lhs_node.is_atom() {
-            let (lhs, rhs, delimiters) =
-                pop_all_delimiters(v.lhs.next_sibling(), v.rhs, v.delimiters);
-            neighbours.push((
-                SyntaxEdge::NovelAtomLHS,
-                SyntaxVertex {
-                    lhs,
-                    rhs,
-                    delimiters,
-                },
-            ));
-        } else {
-            // Enter novel LHS list
-            let delimiters = v.delimiters.push_lhs();
-            let (lhs, rhs, delimiters) = pop_all_delimiters(v.lhs.first_child(), v.rhs, delimiters);
-            neighbours.push((
-                SyntaxEdge::EnterNovelDelimiterLHS,
-                SyntaxVertex {
-                    lhs,
-                    rhs,
-                    delimiters,
-                },
-            ));
-        }
-    }
-
-    // Novel RHS atom
-    if let Some(rhs_node) = v.rhs.node() {
-        if rhs_node.is_atom() {
-            let (lhs, rhs, delimiters) =
-                pop_all_delimiters(v.lhs, v.rhs.next_sibling(), v.delimiters);
-            neighbours.push((
-                SyntaxEdge::NovelAtomRHS,
-                SyntaxVertex {
-                    lhs,
-                    rhs,
-                    delimiters,
-                },
-            ));
-        } else {
-            // Enter novel RHS list
-            let delimiters = v.delimiters.push_rhs();
-            let (lhs, rhs, delimiters) = pop_all_delimiters(v.lhs, v.rhs.first_child(), delimiters);
-            neighbours.push((
-                SyntaxEdge::EnterNovelDelimiterRHS,
-                SyntaxVertex {
-                    lhs,
-                    rhs,
-                    delimiters,
-                },
-            ));
-        }
-    }
-
-    neighbours
-}
-
 /// Find the shortest path between two syntax trees.
 ///
 /// Returns a sequence of edges representing the optimal diff.
@@ -391,8 +406,7 @@ pub fn shortest_path<'a>(
             return None;
         }
 
-        let neighbours = compute_neighbours(&current_vertex);
-        for (edge, next_vertex) in neighbours {
+        for (edge, next_vertex) in current_vertex.neighbours() {
             let next_cost = path.cost + edge.cost();
 
             let dominated = visited

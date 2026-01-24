@@ -1,6 +1,5 @@
-use rstest::rstest;
 use std::ops::Range;
-use std::path::PathBuf;
+use std::path::Path;
 
 use syndiff::{build_tree, diff_trees, SyntaxDiffOptions, SyntaxTree};
 
@@ -95,8 +94,7 @@ fn get_parser(lang: &str) -> fn(&str) -> SyntaxTree {
     }
 }
 
-#[rstest]
-fn test_fixtures(#[files("fixtures/*/*.before")] path: PathBuf) {
+fn test_fixtures(path: &Path) -> datatest_stable::Result<()> {
     let lang = path
         .parent()
         .and_then(|p| p.file_name())
@@ -105,7 +103,7 @@ fn test_fixtures(#[files("fixtures/*/*.before")] path: PathBuf) {
 
     let parser = get_parser(lang);
 
-    let before_content = std::fs::read_to_string(&path)
+    let before_content = std::fs::read_to_string(path)
         .unwrap_or_else(|e| panic!("failed to read {}: {}", path.display(), e));
 
     let after_path = path.with_extension("after");
@@ -113,4 +111,14 @@ fn test_fixtures(#[files("fixtures/*/*.before")] path: PathBuf) {
         .unwrap_or_else(|e| panic!("failed to read {}: {}", after_path.display(), e));
 
     assert_diff(&before_content, &after_content, parser);
+
+    Ok(())
+}
+
+datatest_stable::harness! {
+    {
+        test = test_fixtures,
+        root = "fixtures",
+        pattern = r"^.*\.before$",
+    },
 }
