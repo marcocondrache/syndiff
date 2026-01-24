@@ -28,11 +28,17 @@ jobs:
         with:
           toolchain: ${{ matrix.toolchain }}
 
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@nextest
+
       - name: Cargo build
         run: cargo build --verbose
 
       - name: Cargo test
-        run: cargo test --verbose
+        run: cargo nextest run --verbose
+
+      - name: Cargo doctest
+        run: cargo test --doc --verbose
 
       - name: Cargo check w/o default features
         if: matrix.toolchain == 'nightly'
@@ -40,7 +46,11 @@ jobs:
 
       - name: Cargo test all features
         if: matrix.toolchain == 'nightly'
-        run: cargo test --verbose --all-features
+        run: cargo nextest run --verbose --all-features
+
+      - name: Cargo doctest all features
+        if: matrix.toolchain == 'nightly'
+        run: cargo test --doc --verbose --all-features
 
   build_result:
     name: homu build finished
